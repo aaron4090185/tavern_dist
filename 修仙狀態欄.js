@@ -133,6 +133,119 @@ const SettingsTab=(0,i.defineComponent)({
       }catch(err){console.error('[TabSettings]applyTone',err);statusMsg.value='❌ 失敗：'+err.message;}
       finally{isLoading.value=false;}
     }
+    // ─── 仙旅暂歇 / 天仙入梦 ───
+    const SAVE_ENTRY_NAMES = ['用户信息', '故事基调', '用户动态状态'];
+    const SAVE_SCHEMA_VERSION = 1;
+    const saveStatus = (0,i.ref)('');
+    const isSaving = (0,i.ref)(false);
+    const isLoadingSave = (0,i.ref)(false);
+    const pendingPayload = (0,i.ref)(null); // 选档后暂存,确认覆盖才写入
+
+    // 仙旅暂歇:导出白名单内的世界书条目
+    async function exportSave(){
+      isSaving.value = true; saveStatus.value = '';
+      try{
+        const wbName = getCharWorldbookNames('current')?.primary;
+        if(!wbName) throw new Error('找不到主世界书');
+
+        // 借用 deleteWorldbookEntries 的 predicate 来枚举条目(predicate 永远回 false 等于不删)
+        const all = [];
+        await deleteWorldbookEntries(wbName, e => { all.push(e); return false; });
+        const targets = all.filter(e => SAVE_ENTRY_NAMES.includes(e.name));
+        if(targets.length === 0) throw new Error('没有可备份的条目');
+
+        // 只保留写入时需要的字段(对照 applyTone 与开场白的 create 结构)
+        const entries = targets.map(e => ({
+          name: e.name,
+          enabled: e.enabled !== false,
+          strategy: e.strategy,
+          position: e.position,
+          content: e.content || '',
+          probability: typeof e.probability === 'number' ? e.probability : 100,
+          recursion: e.recursion,
+          effect: e.effect,
+        }));
+
+        let cardName = '';
+        try{
+          const ctx = SillyTavern?.getContext?.();
+          cardName = ctx?.characters?.[ctx.characterId]?.name || '';
+        }catch(e){}
+
+        const payload = {
+          schemaVersion: SAVE_SCHEMA_VERSION,
+          exportedAt: new Date().toISOString(),
+          cardName,
+          worldbookName: wbName,
+          entries,
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+        a.download = '修仙存档_' + (cardName||'未命名') + '_' + ts + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+
+        saveStatus.value = '✅ 已匯出 ' + entries.length + ' 个条目:' + entries.map(e=>e.name).join('、');
+      }catch(err){
+        console.error('[仙旅暂歇] 失败:', err);
+        saveStatus.value = '❌ 失败:' + err.message;
+      }finally{
+        isSaving.value = false;
+      }
+    }
+
+    // 选档解析,等使用者按「确认覆盖」才写入
+    function pickSaveFile(){
+      saveStatus.value = '';
+      pendingPayload.value = null;
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = async e => {
+        const f = e.target.files && e.target.files[0];
+        if(!f) return;
+        try{
+          const payload = JSON.parse(await f.text());
+          if(!payload || typeof payload !== 'object') throw new Error('格式不正确');
+          if(!payload.schemaVersion) throw new Error('缺少版本号');
+          if(payload.schemaVersion > SAVE_SCHEMA_VERSION) throw new Error('版本过新');
+          if(!Array.isArray(payload.entries)) throw new Error('entries 字段缺失');
+          // 只接受白名单内的条目,挡掉乱塞的内容
+          payload.entries = payload.entries.filter(en => en && SAVE_ENTRY_NAMES.includes(en.name));
+          if(payload.entries.length === 0) throw new Error('档案中没有可识别的条目');
+          pendingPayload.value = payload;
+        }catch(err){
+          console.error('[天仙入梦] 解析失败:', err);
+          saveStatus.value = '❌ 解析失败:' + err.message;
+        }
+      };
+      input.click();
+    }
+
+    // 天仙入梦:沿用 applyTone 的 delete predicate + create 模式
+    async function confirmImport(){
+      if(!pendingPayload.value) return;
+      isLoadingSave.value = true; saveStatus.value = '';
+      try{
+        const wbName = getCharWorldbookNames('current')?.primary;
+        if(!wbName) throw new Error('找不到主世界书');
+        const entries = pendingPayload.value.entries;
+        const names = entries.map(en => en.name);
+        await deleteWorldbookEntries(wbName, en => names.includes(en.name));
+        await createWorldbookEntries(wbName, entries);
+        saveStatus.value = '✅ 已还原 ' + entries.length + ' 个条目';
+        pendingPayload.value = null;
+      }catch(err){
+        console.error('[天仙入梦] 失败:', err);
+        saveStatus.value = '❌ 失败:' + err.message;
+      }finally{
+        isLoadingSave.value = false;
+      }
+    }
 
     const C={
       wrap:{padding:'12px 12px calc(env(safe-area-inset-bottom, 0px) + 40px) 12px',fontFamily:'serif',color:'#c8b49a',overflowY:'auto',maxHeight:'calc(100dvh - 140px)',WebkitOverflowScrolling:'touch'},
@@ -162,20 +275,66 @@ const SettingsTab=(0,i.defineComponent)({
             (0,i.h)('div',{style:C.menuBtnDesc},'設定核心玩法、風格、玩家期望'),
           ]),
           (0,i.h)('button',{
-            onClick:()=>{statusMsg.value='⚠️ 仙旅暫歇：功能尚未開放';},
+            onClick:()=>{saveStatus.value='';viewMode.value='save';},
             style:C.menuBtn,
           },[
             (0,i.h)('div',{},'💾 仙旅暫歇'),
             (0,i.h)('div',{style:C.menuBtnDesc},'匯出存檔（尚未開放）'),
           ]),
           (0,i.h)('button',{
-            onClick:()=>{statusMsg.value='⚠️ 天仙入夢：功能尚未開放';},
+            onClick:()=>{saveStatus.value='';pendingPayload.value=null;viewMode.value='load';},
             style:C.menuBtn,
           },[
             (0,i.h)('div',{},'📥 天仙入夢'),
             (0,i.h)('div',{style:C.menuBtnDesc},'匯入存檔（尚未開放）'),
           ]),
           statusMsg.value?(0,i.h)('div',{style:{marginTop:'8px',fontSize:'12px',textAlign:'center',color:statusMsg.value.startsWith('✅')?'#7ac98a':'#e07a5a'}},statusMsg.value):null,
+        ]);
+      }
+      /* ─── 仙旅暫歇頁 ─── */
+      if(viewMode.value==='save'){
+        return (0,i.h)('div',{style:C.wrap},[
+          (0,i.h)('button',{onClick:()=>{saveStatus.value='';viewMode.value='menu';},style:C.backBtn},'← 返回'),
+          (0,i.h)('div',{style:C.title},'💾 仙旅暫歇'),
+          (0,i.h)('div',{style:C.previewBox},[
+            (0,i.h)('div',{style:C.previewLabel},'✦ 將匯出以下世界書條目'),
+            ...SAVE_ENTRY_NAMES.map(n => (0,i.h)('div',{style:C.previewSub}, '• ' + n)),
+          ]),
+          (0,i.h)('button',{
+            onClick:exportSave,
+            disabled:isSaving.value,
+            style:{marginTop:'10px',width:'100%',padding:'10px',background:isSaving.value?'#3a3028':'rgba(201,169,110,0.25)',border:'1px solid #c9a96e',borderRadius:'4px',color:'#c9a96e',cursor:isSaving.value?'not-allowed':'pointer',fontSize:'13px'},
+          },isSaving.value?'匯出中…':'✦ 下載存檔 JSON'),
+          saveStatus.value?(0,i.h)('div',{style:{marginTop:'8px',fontSize:'12px',textAlign:'center',color:saveStatus.value.startsWith('✅')?'#7ac98a':'#e07a5a'}},saveStatus.value):null,
+        ]);
+      }
+      /* ─── 天仙入夢頁 ─── */
+      if(viewMode.value==='load'){
+        const pp = pendingPayload.value;
+        return (0,i.h)('div',{style:C.wrap},[
+          (0,i.h)('button',{onClick:()=>{saveStatus.value='';pendingPayload.value=null;viewMode.value='menu';},style:C.backBtn},'← 返回'),
+          (0,i.h)('div',{style:C.title},'📥 天仙入夢'),
+          (0,i.h)('div',{style:C.previewBox},[
+            (0,i.h)('div',{style:C.previewLabel},'✦ 可還原的條目（其他不動）'),
+            ...SAVE_ENTRY_NAMES.map(n => (0,i.h)('div',{style:C.previewSub}, '• ' + n)),
+          ]),
+          (0,i.h)('button',{
+            onClick:pickSaveFile,
+            disabled:isLoadingSave.value,
+            style:{marginTop:'10px',width:'100%',padding:'10px',background:isLoadingSave.value?'#3a3028':'rgba(201,169,110,0.15)',border:'1px solid #5a4a3a',borderRadius:'4px',color:'#c9a96e',cursor:isLoadingSave.value?'not-allowed':'pointer',fontSize:'13px'},
+          },'📁 選擇存檔檔案'),
+          pp ? (0,i.h)('div',{style:{...C.previewBox,marginTop:'10px',borderColor:'#c9a96e'}},[
+            (0,i.h)('div',{style:C.previewLabel},'✦ 即將還原'),
+            (0,i.h)('div',{style:C.previewSub},'存檔時間:' + (pp.exportedAt||'未知')),
+            (0,i.h)('div',{style:C.previewSub},'來源卡片:' + (pp.cardName||'未記錄')),
+            (0,i.h)('div',{style:C.previewSub},'包含條目:' + pp.entries.map(e=>e.name).join('、')),
+          ]) : null,
+          pp ? (0,i.h)('button',{
+            onClick:confirmImport,
+            disabled:isLoadingSave.value,
+            style:{marginTop:'10px',width:'100%',padding:'10px',background:isLoadingSave.value?'#3a3028':'rgba(224,122,90,0.25)',border:'1px solid #e07a5a',borderRadius:'4px',color:'#e07a5a',cursor:isLoadingSave.value?'not-allowed':'pointer',fontSize:'13px'},
+          },isLoadingSave.value?'寫入中…':'⚠️ 確認覆蓋並還原') : null,
+          saveStatus.value?(0,i.h)('div',{style:{marginTop:'8px',fontSize:'12px',textAlign:'center',color:saveStatus.value.startsWith('✅')?'#7ac98a':'#e07a5a'}},saveStatus.value):null,
         ]);
       }
       /* ─── 故事基調設定頁（原畫面 + 返回鈕） ─── */
