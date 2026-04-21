@@ -271,7 +271,7 @@ const SettingsTab=(0,i.defineComponent)({
             onClick:()=>{statusMsg.value='';viewMode.value='tone';},
             style:C.menuBtn,
           },[
-            (0,i.h)('div',{},'📖 故事基調'),
+            (0,i.h)('div',{},'📖 故事基调'),
             (0,i.h)('div',{style:C.menuBtnDesc},'設定核心玩法、風格、玩家期望'),
           ]),
           (0,i.h)('button',{
@@ -337,7 +337,7 @@ const SettingsTab=(0,i.defineComponent)({
           saveStatus.value?(0,i.h)('div',{style:{marginTop:'8px',fontSize:'12px',textAlign:'center',color:saveStatus.value.startsWith('✅')?'#7ac98a':'#e07a5a'}},saveStatus.value):null,
         ]);
       }
-      /* ─── 故事基調設定頁（原畫面 + 返回鈕） ─── */
+      /* ─── 故事基调設定頁（原畫面 + 返回鈕） ─── */
       const core=selectedCore.value,styles=selectedStyles.value;
       let preview;
       if(!isLoaded.value){
@@ -363,7 +363,7 @@ const SettingsTab=(0,i.defineComponent)({
       },s));
       return (0,i.h)('div',{style:C.wrap},[
         (0,i.h)('button',{onClick:()=>{statusMsg.value='';viewMode.value='menu';},style:C.backBtn},'← 返回'),
-        (0,i.h)('div',{style:C.title},'⚙️ 故事基調設定'),
+        (0,i.h)('div',{style:C.title},'⚙️ 故事基调設定'),
         preview,
         (0,i.h)('div',{style:C.divider}),
         (0,i.h)('div',{style:C.secLabel},'核心玩法（單選）'),
